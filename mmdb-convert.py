@@ -39,10 +39,11 @@ METADATA_MARKER = b'\xab\xcd\xefMaxMind.com'
 try:
     ord(b"1"[0])
 except TypeError:
-    def byteToInt(x):
-        return x
+    def byte_to_int(b):
+        "convert a single element of a bytestring to an integer."
+        return b
 else:
-    byteToInt = ord
+    byte_to_int = ord
 
 # Here's some more python2/python3 junk.  Better solutions wanted.
 try:
@@ -51,6 +52,7 @@ except TypeError:
     bytesToStr = str
 else:
     def bytesToStr(b):
+        "convert a bytestring in utf8 to a string."
         return str(b, 'utf8')
 
 def to_int(s):
@@ -58,17 +60,17 @@ def to_int(s):
     result = 0
     for c in s:
         result *= 256
-        result += byteToInt(c)
+        result += byte_to_int(c)
     return result
 
 def to_int24(s):
     "Parse a pair of big-endian 24-bit integers from bytestring s."
-    a,b,c = struct.unpack("!HHH", s)
+    a, b, c = struct.unpack("!HHH", s)
     return ((a <<8)+(b>>8)), (((b&0xff)<<16)+c)
 
 def to_int32(s):
     "Parse a pair of big-endian 32-bit integers from bytestring s."
-    a,b = struct.unpack("!LL", s)
+    a, b = struct.unpack("!LL", s)
     return a, b
 
 def to_int28(s):
@@ -77,7 +79,7 @@ def to_int28(s):
     b = struct.unpack("!L", s[3:])
     return (a>>4), (b & 0x0fffffff)
 
-class Tree:
+class Tree(object):
     "Holds a node in the tree"
     def __init__(self, left, right):
         self.left = left
@@ -86,8 +88,9 @@ class Tree:
 def resolve_tree(tree, data):
     """Fill in the left_item and right_item fields for all values in the tree
        so that they point to another Tree, or to a Datum, or to None."""
-    d = Datum(None, None, None,None)
+    d = Datum(None, None, None, None)
     def resolve_item(item):
+        "Helper: resolve a single index."
         if item < len(tree):
             return tree[item]
         elif item == len(tree):
@@ -119,7 +122,7 @@ def parse_search_tree(s, record_size):
 
     return nodes
 
-class Datum:
+class Datum(object):
     """Holds a single entry from the Data section"""
     def __init__(self, pos, kind, ln, data):
         self.pos = pos    # Position of this record within data section
@@ -129,7 +132,7 @@ class Datum:
         self.children = None # Used for arrays and maps.
 
     def __repr__(self):
-        return "Datum(%r,%r,%r,%r)" %(self.pos, self.kind, self.ln, self.data)
+        return "Datum(%r,%r,%r,%r)" % (self.pos, self.kind, self.ln, self.data)
 
     # Comparison functions used for bsearch
     def __lt__(self, other):
@@ -164,9 +167,10 @@ class Datum:
                     raise ValueError("Bad dictionary key type %d"% k.kind)
                 self.map[bytesToStr(k.data)] = v
 
-    def intVal(self):
+    def int_val(self):
         """If this is an integer type, return its value"""
-        assert self.kind in (TP_UINT16,TP_UINT32,TP_UINT64,TP_UINT128,TP_SINT32)
+        assert self.kind in (TP_UINT16, TP_UINT32, TP_UINT64,
+                             TP_UINT128, TP_SINT32)
         i = to_int(self.data)
         if self.kind == TP_SINT32:
             if i & 0x80000000:
@@ -187,7 +191,7 @@ class Datum:
 
 def resolve_pointers(data):
     """Fill in the ptr field of every pointer in data."""
-    search = Datum(None, None, None,None)
+    search = Datum(None, None, None, None)
     for d in data:
         if d.kind == TP_PTR:
             search.pos = d.ln
@@ -215,11 +219,11 @@ def get_type_and_len(s):
     """Data parsing helper: decode the type value and much-overloaded 'length'
        field for the value starting at s.  Return a 3-tuple of type, length,
        and number of bytes used to encode type-plus-length."""
-    c = byteToInt(s[0])
+    c = byte_to_int(s[0])
     tp = c >> 5
     skip = 1
     if tp == 0:
-        tp = byteToInt(s[1])+7
+        tp = byte_to_int(s[1])+7
         skip = 2
     ln = c & 31
 
@@ -229,12 +233,12 @@ def get_type_and_len(s):
         ln &= 7
         ln <<= len_len * 8
         ln += to_int(s[skip:skip+len_len])
-        ln += (0,0,2048,526336)[len_len]
+        ln += (0, 0, 2048, 526336)[len_len]
         skip += len_len
     elif ln >= 29:
         len_len = ln - 28
         ln = to_int(s[skip:skip+len_len])
-        ln += (0,29,285,65821)[len_len]
+        ln += (0, 29, 285, 65821)[len_len]
         skip += len_len
 
     return tp, ln, skip
@@ -249,6 +253,8 @@ IGNORE_LEN_TYPES = set([
 ])
 
 def parse_data_section(s):
+    """Given a data section encoded in a bytestring, return a list of
+       Datum items."""
 
     # Stack of possibly nested containers.  We use the 'nChildren' member of
     # the last one to tell how many moreitems nest directly inside.
@@ -304,24 +310,29 @@ def parse_mm_file(s):
     metadata[0].build_maps()
     mm = metadata[0].map
 
-    tree_size = ((mm['record_size'].intVal() * 2) // 8 ) * mm['node_count'].intVal()
+    tree_size = (((mm['record_size'].int_val() * 2) // 8 ) *
+                 mm['node_count'].int_val())
 
     if s[tree_size:tree_size+16] != b'\x00'*16:
         raise ValueError("Missing section separator!")
 
-    tree = parse_search_tree(s[:tree_size], mm['record_size'].intVal())
+    tree = parse_search_tree(s[:tree_size], mm['record_size'].int_val())
 
     data = parse_data_section(s[tree_size+16:metadata_ptr])
 
     resolve_pointers(data)
     resolve_tree(tree, data)
+
     for d in data:
         d.build_maps()
 
     return metadata, tree, data
 
 def format_datum(datum):
-    # Overwrite this info to change what we return for each entry
+    """Given a Datum at a leaf of the tree, return the string that we should
+       write as its value.
+    """
+    # Overwrite this function to change what we return for each entry
     #
     # XXXX Is this really the best we can do?
     try:
@@ -332,6 +343,11 @@ def format_datum(datum):
 IPV4_PREFIX = "0"*96
 
 def dump_item_ipv4(prefix, val):
+    """Print the information for an IPv4 address to stdout, where 'prefix'
+       is a string holding a binary prefix for the address, and 'val' is the
+       value to dump.  If the prefix is not an IPv4 address (it does not start
+       with 96 bits of 0), then print nothing.
+    """
     if not prefix.startswith(IPV4_PREFIX):
         return
     prefix = prefix[96:]
@@ -343,9 +359,15 @@ def dump_item_ipv4(prefix, val):
     print("%d,%d,%s"%(lo, hi, val))
 
 def fmt_ipv6_addr(v):
+    """Given a 128-bit integer representing an ipv6 address, return a
+       string for that ipv6 address."""
     return socket.inet_ntop(socket.AF_INET6, binascii.unhexlify("%032x"%v))
 
 def dump_item_ipv6(prefix, val):
+    """Print the information for an IPv6 address prefix to stdout, where
+       'prefix' is a string holding a binary prefix for the address,
+       and 'val' is the value to dump.
+    """
     v = int(prefix, 2)
     shift = 128 - len(prefix)
     lo = v << shift
@@ -356,10 +378,13 @@ def dump_item_ipv6(prefix, val):
                       val))
 
 def dump_tree(node, prefix=""):
-    if isinstance(node,Tree):
+    """Walk the tree rooted at 'node', and call dump_item on the
+       format_datum output of every leaf of the tree."""
+
+    if isinstance(node, Tree):
         dump_tree(node.left_item, prefix+"0")
         dump_tree(node.right_item, prefix+"1")
-    elif isinstance(node,Datum):
+    elif isinstance(node, Datum):
         assert node.kind == TP_MAP
         dump_item(prefix, format_datum(node))
     else:
@@ -369,8 +394,8 @@ def dump_tree(node, prefix=""):
 import sys
 
 content = open(sys.argv[1], 'rb').read()
-m,t,d = parse_mm_file(content)
+_, the_tree, _ = parse_mm_file(content)
 
 dump_item = dump_item_ipv4
 
-dump_tree(t[0])
+dump_tree(the_tree[0])

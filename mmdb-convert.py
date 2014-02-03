@@ -75,9 +75,8 @@ def to_int32(s):
 
 def to_int28(s):
     "Parse a pair of big-endian 28-bit integers from bytestring s."
-    a = struct.unpack("!L", s)
-    b = struct.unpack("!L", s[3:])
-    return (a>>4), (b & 0x0fffffff)
+    a, b = unpack("!LL", s + b'\x00')
+    return (((a & 0xf0) << 20) + (a >> 8)), ((a & 0x0f) << 24) + (b >> 8)
 
 class Tree(object):
     "Holds a node in the tree"

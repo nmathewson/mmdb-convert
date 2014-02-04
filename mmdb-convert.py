@@ -110,9 +110,13 @@ def parse_search_tree(s, record_size):
     record_bytes = (record_size*2) // 8
     nodes = []
     p = 0
-    to_leftright = { 24: to_int24,
-                     28: to_int28,
-                     32: to_int32 }[ record_size ]
+    try:
+        to_leftright = { 24: to_int24,
+                         28: to_int28,
+                         32: to_int32 }[ record_size ]
+    except KeyError:
+        raise NotImplementedError("Unsupported record size in bits: %d" %
+                                  record_size)
     while p < len(s):
         left, right = to_leftright(s[p:p+record_bytes])
         p += record_bytes

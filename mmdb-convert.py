@@ -233,10 +233,13 @@ def get_type_and_len(s):
     # I'm sure I don't know what they were thinking here...
     if tp == TP_PTR:
         len_len = (ln >> 3) + 1
-        ln &= 7
-        ln <<= len_len * 8
+        if len_len < 4:
+            ln &= 7
+            ln <<= len_len * 8
+        else:
+            ln = 0
         ln += to_int(s[skip:skip+len_len])
-        ln += (0, 0, 2048, 526336)[len_len]
+        ln += (0, 0, 2048, 526336, 0)[len_len]
         skip += len_len
     elif ln >= 29:
         len_len = ln - 28

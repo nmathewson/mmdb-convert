@@ -393,13 +393,13 @@ def dump_item_ipv6(prefix, val):
                       fmt_ipv6_addr(hi),
                       val))
 
-def dump_tree(node, prefix=""):
+def dump_tree(node, dump_item, prefix=""):
     """Walk the tree rooted at 'node', and call dump_item on the
        format_datum output of every leaf of the tree."""
 
     if isinstance(node, Tree):
-        dump_tree(node.left_item, prefix+"0")
-        dump_tree(node.right_item, prefix+"1")
+        dump_tree(node.left_item, dump_item, prefix+"0")
+        dump_tree(node.right_item, dump_item, prefix+"1")
     elif isinstance(node, Datum):
         assert node.kind == TP_MAP
         dump_item(prefix, format_datum(node))
@@ -411,6 +411,4 @@ import sys
 content = open(sys.argv[1], 'rb').read()
 _, the_tree, _ = parse_mm_file(content)
 
-dump_item = dump_item_ipv4
-
-dump_tree(the_tree[0])
+dump_tree(the_tree[0], dump_item_ipv4)

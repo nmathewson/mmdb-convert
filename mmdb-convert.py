@@ -334,17 +334,21 @@ def parse_mm_file(s):
 
     return metadata, tree, data
 
+CONTINENTS = { "EU": "EU", "AS": "AP" }
+
 def format_datum(datum):
     """Given a Datum at a leaf of the tree, return the string that we should
        write as its value.
     """
-    # Overwrite this function to change what we return for each entry
-    #
-    # XXXX Is this really the best we can do?
     try:
         return bytesToStr(datum.map['country'].map['iso_code'].data)
     except KeyError:
-        return "??"
+        pass
+    try:
+        return CONTINENTS[bytesToStr(datum.map['continent'].map['code'].data)]
+    except KeyError:
+        pass
+    return None
 
 IPV4_PREFIX = "0"*96
 
@@ -402,7 +406,9 @@ def dump_tree(node, dump_item, prefix=""):
         dump_tree(node.right_item, dump_item, prefix+"1")
     elif isinstance(node, Datum):
         assert node.kind == TP_MAP
-        dump_item(prefix, format_datum(node))
+        code = format_datum(node)
+        if code:
+            dump_item(prefix, code)
     else:
         assert node == None
 

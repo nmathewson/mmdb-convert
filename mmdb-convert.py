@@ -33,6 +33,7 @@ import bisect
 import socket
 import binascii
 import sys
+import time
 
 METADATA_MARKER = b'\xab\xcd\xefMaxMind.com'
 
@@ -419,11 +420,16 @@ def dump_tree(entries, node, dump_item, prefix=""):
     else:
         assert node == None
 
-def write_geoip_file(filename, the_tree, dump_item, fmt_item):
+def write_geoip_file(filename, metadata, the_tree, dump_item, fmt_item):
     """Write the entries in the_tree to filename."""
     entries = []
     dump_tree(entries, the_tree[0], dump_item)
     fobj = open(filename, 'w')
+
+    build_epoch = metadata[0].map['build_epoch'].int_val()
+    fobj.write("# Last updated based on %s Maxmind GeoLite2 Country\n"%
+               time.strftime('%B %d %Y', time.gmtime(build_epoch)))
+
     unwritten = None
     for entry in entries:
         if not unwritten:
@@ -438,7 +444,7 @@ def write_geoip_file(filename, the_tree, dump_item, fmt_item):
     fobj.close()
 
 content = open(sys.argv[1], 'rb').read()
-_, the_tree, _ = parse_mm_file(content)
+metadata, the_tree, _ = parse_mm_file(content)
 
-write_geoip_file('geoip', the_tree, dump_item_ipv4, fmt_item_ipv4)
-write_geoip_file('geoip6', the_tree, dump_item_ipv6, fmt_item_ipv6)
+write_geoip_file('geoip', metadata, the_tree, dump_item_ipv4, fmt_item_ipv4)
+write_geoip_file('geoip6', metadata, the_tree, dump_item_ipv6, fmt_item_ipv6)

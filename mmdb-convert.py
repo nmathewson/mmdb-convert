@@ -369,11 +369,21 @@ def fmt_ipv6_addr(v):
        string for that ipv6 address."""
     return socket.inet_ntop(socket.AF_INET6, binascii.unhexlify("%032x"%v))
 
+IPV4_MAPPED_IPV6_PREFIX = "0"*80 + "1"*16
+IPV6_6TO4_PREFIX = "0010000000000010"
+
 def dump_item_ipv6(prefix, val):
     """Print the information for an IPv6 address prefix to stdout, where
        'prefix' is a string holding a binary prefix for the address,
-       and 'val' is the value to dump.
+       and 'val' is the value to dump.  If the prefix is an IPv4 address
+       (starts with 96 bits of 0), is an IPv4-mapped IPv6 address
+       (::ffff:0:0/96), or is in the 6to4 mapping subnet (2002::/16), then
+       print nothing.
     """
+    if prefix.startswith(IPV4_PREFIX) or \
+       prefix.startswith(IPV4_MAPPED_IPV6_PREFIX) or \
+       prefix.startswith(IPV6_6TO4_PREFIX):
+        return
     v = int(prefix, 2)
     shift = 128 - len(prefix)
     lo = v << shift

@@ -353,8 +353,8 @@ def format_datum(datum):
 
 IPV4_PREFIX = "0"*96
 
-def dump_item_ipv4(fobj, prefix, val):
-    """Print the information for an IPv4 address to stdout, where 'prefix'
+def dump_item_ipv4(entries, prefix, val):
+    """Dump the information for an IPv4 address to entries, where 'prefix'
        is a string holding a binary prefix for the address, and 'val' is the
        value to dump.  If the prefix is not an IPv4 address (it does not start
        with 96 bits of 0), then print nothing.
@@ -366,19 +366,28 @@ def dump_item_ipv4(fobj, prefix, val):
     shift = 32 - len(prefix)
     lo = v << shift
     hi = ((v+1) << shift) - 1
+    entries.append((lo, hi, val))
 
-    fobj.write("%d,%d,%s\n"%(lo, hi, val))
+def fmt_item_ipv4(entry):
+    """Format an IPv4 range with lo and hi addresses in decimal form."""
+    return "%d,%d,%s\n"%(entry[0], entry[1], entry[2])
 
 def fmt_ipv6_addr(v):
     """Given a 128-bit integer representing an ipv6 address, return a
        string for that ipv6 address."""
     return socket.inet_ntop(socket.AF_INET6, binascii.unhexlify("%032x"%v))
 
+def fmt_item_ipv6(entry):
+    """Format an IPv6 range with lo and hi addresses in hex form."""
+    return "%s,%s,%s\n"%(fmt_ipv6_addr(entry[0]),
+                         fmt_ipv6_addr(entry[1]),
+                         entry[2])
+
 IPV4_MAPPED_IPV6_PREFIX = "0"*80 + "1"*16
 IPV6_6TO4_PREFIX = "0010000000000010"
 
-def dump_item_ipv6(fobj, prefix, val):
-    """Print the information for an IPv6 address prefix to stdout, where
+def dump_item_ipv6(entries, prefix, val):
+    """Dump the information for an IPv6 address prefix to entries, where
        'prefix' is a string holding a binary prefix for the address,
        and 'val' is the value to dump.  If the prefix is an IPv4 address
        (starts with 96 bits of 0), is an IPv4-mapped IPv6 address
@@ -393,33 +402,43 @@ def dump_item_ipv6(fobj, prefix, val):
     shift = 128 - len(prefix)
     lo = v << shift
     hi = ((v+1) << shift) - 1
+    entries.append((lo, hi, val))
 
-    fobj.write("%s,%s,%s\n"%(fmt_ipv6_addr(lo),
-                             fmt_ipv6_addr(hi),
-                             val))
-
-def dump_tree(node, dump_item, fobj, prefix=""):
+def dump_tree(entries, node, dump_item, prefix=""):
     """Walk the tree rooted at 'node', and call dump_item on the
        format_datum output of every leaf of the tree."""
 
     if isinstance(node, Tree):
-        dump_tree(node.left_item, dump_item, fobj, prefix+"0")
-        dump_tree(node.right_item, dump_item, fobj, prefix+"1")
+        dump_tree(entries, node.left_item, dump_item, prefix+"0")
+        dump_tree(entries, node.right_item, dump_item, prefix+"1")
     elif isinstance(node, Datum):
         assert node.kind == TP_MAP
         code = format_datum(node)
         if code:
-            dump_item(fobj, prefix, code)
+            dump_item(entries, prefix, code)
     else:
         assert node == None
 
-def write_geoip_file(filename, the_tree, dump_item):
+def write_geoip_file(filename, the_tree, dump_item, fmt_item):
+    """Write the entries in the_tree to filename."""
+    entries = []
+    dump_tree(entries, the_tree[0], dump_item)
     fobj = open(filename, 'w')
-    dump_tree(the_tree[0], dump_item, fobj)
+    unwritten = None
+    for entry in entries:
+        if not unwritten:
+            unwritten = entry
+        elif unwritten[1] + 1 == entry[0] and unwritten[2] == entry[2]:
+            unwritten = (unwritten[0], entry[1], unwritten[2])
+        else:
+            fobj.write(fmt_item(unwritten))
+            unwritten = entry
+    if unwritten:
+        fobj.write(fmt_item(unwritten))
     fobj.close()
 
 content = open(sys.argv[1], 'rb').read()
 _, the_tree, _ = parse_mm_file(content)
 
-write_geoip_file('geoip', the_tree, dump_item_ipv4)
-write_geoip_file('geoip6', the_tree, dump_item_ipv6)
+write_geoip_file('geoip', the_tree, dump_item_ipv4, fmt_item_ipv4)
+write_geoip_file('geoip6', the_tree, dump_item_ipv6, fmt_item_ipv6)

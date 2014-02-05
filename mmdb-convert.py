@@ -353,7 +353,7 @@ def format_datum(datum):
 
 IPV4_PREFIX = "0"*96
 
-def dump_item_ipv4(prefix, val):
+def dump_item_ipv4(fobj, prefix, val):
     """Print the information for an IPv4 address to stdout, where 'prefix'
        is a string holding a binary prefix for the address, and 'val' is the
        value to dump.  If the prefix is not an IPv4 address (it does not start
@@ -367,7 +367,7 @@ def dump_item_ipv4(prefix, val):
     lo = v << shift
     hi = ((v+1) << shift) - 1
 
-    print("%d,%d,%s"%(lo, hi, val))
+    fobj.write("%d,%d,%s\n"%(lo, hi, val))
 
 def fmt_ipv6_addr(v):
     """Given a 128-bit integer representing an ipv6 address, return a
@@ -377,7 +377,7 @@ def fmt_ipv6_addr(v):
 IPV4_MAPPED_IPV6_PREFIX = "0"*80 + "1"*16
 IPV6_6TO4_PREFIX = "0010000000000010"
 
-def dump_item_ipv6(prefix, val):
+def dump_item_ipv6(fobj, prefix, val):
     """Print the information for an IPv6 address prefix to stdout, where
        'prefix' is a string holding a binary prefix for the address,
        and 'val' is the value to dump.  If the prefix is an IPv4 address
@@ -394,26 +394,32 @@ def dump_item_ipv6(prefix, val):
     lo = v << shift
     hi = ((v+1) << shift) - 1
 
-    print("%s,%s,%s"%(fmt_ipv6_addr(lo),
-                      fmt_ipv6_addr(hi),
-                      val))
+    fobj.write("%s,%s,%s\n"%(fmt_ipv6_addr(lo),
+                             fmt_ipv6_addr(hi),
+                             val))
 
-def dump_tree(node, dump_item, prefix=""):
+def dump_tree(node, dump_item, fobj, prefix=""):
     """Walk the tree rooted at 'node', and call dump_item on the
        format_datum output of every leaf of the tree."""
 
     if isinstance(node, Tree):
-        dump_tree(node.left_item, dump_item, prefix+"0")
-        dump_tree(node.right_item, dump_item, prefix+"1")
+        dump_tree(node.left_item, dump_item, fobj, prefix+"0")
+        dump_tree(node.right_item, dump_item, fobj, prefix+"1")
     elif isinstance(node, Datum):
         assert node.kind == TP_MAP
         code = format_datum(node)
         if code:
-            dump_item(prefix, code)
+            dump_item(fobj, prefix, code)
     else:
         assert node == None
+
+def write_geoip_file(filename, the_tree, dump_item):
+    fobj = open(filename, 'w')
+    dump_tree(the_tree[0], dump_item, fobj)
+    fobj.close()
 
 content = open(sys.argv[1], 'rb').read()
 _, the_tree, _ = parse_mm_file(content)
 
-dump_tree(the_tree[0], dump_item_ipv4)
+write_geoip_file('geoip', the_tree, dump_item_ipv4)
+write_geoip_file('geoip6', the_tree, dump_item_ipv6)

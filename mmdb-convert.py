@@ -395,7 +395,6 @@ def dump_tree(node, prefix=""):
         dump_item(prefix, format_datum(node))
     else:
         assert node == None
-        dump_item(prefix, node)
 
 import sys
 

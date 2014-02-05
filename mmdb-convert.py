@@ -32,6 +32,7 @@ import struct
 import bisect
 import socket
 import binascii
+import sys
 
 METADATA_MARKER = b'\xab\xcd\xefMaxMind.com'
 
@@ -411,8 +412,6 @@ def dump_tree(node, dump_item, prefix=""):
             dump_item(prefix, code)
     else:
         assert node == None
-
-import sys
 
 content = open(sys.argv[1], 'rb').read()
 _, the_tree, _ = parse_mm_file(content)

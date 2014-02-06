@@ -336,18 +336,12 @@ def parse_mm_file(s):
 
     return metadata, tree, data
 
-CONTINENTS = { "EU": "EU", "AS": "AP" }
-
 def format_datum(datum):
     """Given a Datum at a leaf of the tree, return the string that we should
        write as its value.
     """
     try:
         return bytesToStr(datum.map['country'].map['iso_code'].data)
-    except KeyError:
-        pass
-    try:
-        return CONTINENTS[bytesToStr(datum.map['continent'].map['code'].data)]
     except KeyError:
         pass
     return None

@@ -32,6 +32,8 @@ import struct
 import bisect
 import socket
 import binascii
+import sys
+import time
 
 METADATA_MARKER = b'\xab\xcd\xefMaxMind.com'
 
@@ -75,9 +77,8 @@ def to_int32(s):
 
 def to_int28(s):
     "Parse a pair of big-endian 28-bit integers from bytestring s."
-    a = struct.unpack("!L", s)
-    b = struct.unpack("!L", s[3:])
-    return (a>>4), (b & 0x0fffffff)
+    a, b = unpack("!LL", s + b'\x00')
+    return (((a & 0xf0) << 20) + (a >> 8)), ((a & 0x0f) << 24) + (b >> 8)
 
 class Tree(object):
     "Holds a node in the tree"
@@ -111,9 +112,13 @@ def parse_search_tree(s, record_size):
     record_bytes = (record_size*2) // 8
     nodes = []
     p = 0
-    to_leftright = { 24: to_int24,
-                     28: to_int28,
-                     32: to_int32 }[ record_size ]
+    try:
+        to_leftright = { 24: to_int24,
+                         28: to_int28,
+                         32: to_int32 }[ record_size ]
+    except KeyError:
+        raise NotImplementedError("Unsupported record size in bits: %d" %
+                                  record_size)
     while p < len(s):
         left, right = to_leftright(s[p:p+record_bytes])
         p += record_bytes
@@ -230,10 +235,13 @@ def get_type_and_len(s):
     # I'm sure I don't know what they were thinking here...
     if tp == TP_PTR:
         len_len = (ln >> 3) + 1
-        ln &= 7
-        ln <<= len_len * 8
+        if len_len < 4:
+            ln &= 7
+            ln <<= len_len * 8
+        else:
+            ln = 0
         ln += to_int(s[skip:skip+len_len])
-        ln += (0, 0, 2048, 526336)[len_len]
+        ln += (0, 0, 2048, 526336, 0)[len_len]
         skip += len_len
     elif ln >= 29:
         len_len = ln - 28
@@ -332,18 +340,16 @@ def format_datum(datum):
     """Given a Datum at a leaf of the tree, return the string that we should
        write as its value.
     """
-    # Overwrite this function to change what we return for each entry
-    #
-    # XXXX Is this really the best we can do?
     try:
         return bytesToStr(datum.map['country'].map['iso_code'].data)
     except KeyError:
-        return "??"
+        pass
+    return None
 
 IPV4_PREFIX = "0"*96
 
-def dump_item_ipv4(prefix, val):
-    """Print the information for an IPv4 address to stdout, where 'prefix'
+def dump_item_ipv4(entries, prefix, val):
+    """Dump the information for an IPv4 address to entries, where 'prefix'
        is a string holding a binary prefix for the address, and 'val' is the
        value to dump.  If the prefix is not an IPv4 address (it does not start
        with 96 bits of 0), then print nothing.
@@ -355,47 +361,84 @@ def dump_item_ipv4(prefix, val):
     shift = 32 - len(prefix)
     lo = v << shift
     hi = ((v+1) << shift) - 1
+    entries.append((lo, hi, val))
 
-    print("%d,%d,%s"%(lo, hi, val))
+def fmt_item_ipv4(entry):
+    """Format an IPv4 range with lo and hi addresses in decimal form."""
+    return "%d,%d,%s\n"%(entry[0], entry[1], entry[2])
 
 def fmt_ipv6_addr(v):
     """Given a 128-bit integer representing an ipv6 address, return a
        string for that ipv6 address."""
     return socket.inet_ntop(socket.AF_INET6, binascii.unhexlify("%032x"%v))
 
-def dump_item_ipv6(prefix, val):
-    """Print the information for an IPv6 address prefix to stdout, where
+def fmt_item_ipv6(entry):
+    """Format an IPv6 range with lo and hi addresses in hex form."""
+    return "%s,%s,%s\n"%(fmt_ipv6_addr(entry[0]),
+                         fmt_ipv6_addr(entry[1]),
+                         entry[2])
+
+IPV4_MAPPED_IPV6_PREFIX = "0"*80 + "1"*16
+IPV6_6TO4_PREFIX = "0010000000000010"
+
+def dump_item_ipv6(entries, prefix, val):
+    """Dump the information for an IPv6 address prefix to entries, where
        'prefix' is a string holding a binary prefix for the address,
-       and 'val' is the value to dump.
+       and 'val' is the value to dump.  If the prefix is an IPv4 address
+       (starts with 96 bits of 0), is an IPv4-mapped IPv6 address
+       (::ffff:0:0/96), or is in the 6to4 mapping subnet (2002::/16), then
+       print nothing.
     """
+    if prefix.startswith(IPV4_PREFIX) or \
+       prefix.startswith(IPV4_MAPPED_IPV6_PREFIX) or \
+       prefix.startswith(IPV6_6TO4_PREFIX):
+        return
     v = int(prefix, 2)
     shift = 128 - len(prefix)
     lo = v << shift
     hi = ((v+1) << shift) - 1
+    entries.append((lo, hi, val))
 
-    print("%s,%s,%s"%(fmt_ipv6_addr(lo),
-                      fmt_ipv6_addr(hi),
-                      val))
-
-def dump_tree(node, prefix=""):
+def dump_tree(entries, node, dump_item, prefix=""):
     """Walk the tree rooted at 'node', and call dump_item on the
        format_datum output of every leaf of the tree."""
 
     if isinstance(node, Tree):
-        dump_tree(node.left_item, prefix+"0")
-        dump_tree(node.right_item, prefix+"1")
+        dump_tree(entries, node.left_item, dump_item, prefix+"0")
+        dump_tree(entries, node.right_item, dump_item, prefix+"1")
     elif isinstance(node, Datum):
         assert node.kind == TP_MAP
-        dump_item(prefix, format_datum(node))
+        code = format_datum(node)
+        if code:
+            dump_item(entries, prefix, code)
     else:
         assert node == None
-        dump_item(prefix, node)
 
-import sys
+def write_geoip_file(filename, metadata, the_tree, dump_item, fmt_item):
+    """Write the entries in the_tree to filename."""
+    entries = []
+    dump_tree(entries, the_tree[0], dump_item)
+    fobj = open(filename, 'w')
+
+    build_epoch = metadata[0].map['build_epoch'].int_val()
+    fobj.write("# Last updated based on %s Maxmind GeoLite2 Country\n"%
+               time.strftime('%B %d %Y', time.gmtime(build_epoch)))
+
+    unwritten = None
+    for entry in entries:
+        if not unwritten:
+            unwritten = entry
+        elif unwritten[1] + 1 == entry[0] and unwritten[2] == entry[2]:
+            unwritten = (unwritten[0], entry[1], unwritten[2])
+        else:
+            fobj.write(fmt_item(unwritten))
+            unwritten = entry
+    if unwritten:
+        fobj.write(fmt_item(unwritten))
+    fobj.close()
 
 content = open(sys.argv[1], 'rb').read()
-_, the_tree, _ = parse_mm_file(content)
+metadata, the_tree, _ = parse_mm_file(content)
 
-dump_item = dump_item_ipv4
-
-dump_tree(the_tree[0])
+write_geoip_file('geoip', metadata, the_tree, dump_item_ipv4, fmt_item_ipv4)
+write_geoip_file('geoip6', metadata, the_tree, dump_item_ipv6, fmt_item_ipv6)
